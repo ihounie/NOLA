@@ -30,10 +30,10 @@ from optimizer import (
 )
 
 from data_utils import FT_Dataset
-from model_nola import GPT2Config, GPT2LMModel
+from model_lorta import GPT2Config, GPT2LMModel
 from exp_utils import create_exp_dir
 
-import loralib as lora
+import lortalib as lorta
 
 parser = argparse.ArgumentParser(description='PyTorch GPT2 ft script')
 
@@ -78,12 +78,6 @@ parser.add_argument('--lora_qv', action='store_true', help="Apply LoRA to query 
 
 parser.add_argument('--lora_mlp', action='store_true', help="Apply LoRA to mlp")
 
-parser.add_argument('--use_nola', action='store_true', help="Use NOLA inside the LoRA")
-
-parser.add_argument('--nola_num_basis', type=int, default=1024, help='Number of basis in NOLA')
-
-parser.add_argument('--qnola', action='store_true', help="quantized aware training")
-
 parser.add_argument('--qbits', type=int, default=2, help='bits for quantized aware training ')
 
 parser.add_argument('--obj', default='clm', choices=['jlm', 'clm'], 
@@ -98,6 +92,16 @@ parser.add_argument('--roll_lr', type=float, default=0.00001, help='rolling lear
 parser.add_argument('--roll_step', type=int, default=100, help='rolling step')
 
 parser.add_argument('--eval_epoch', type=int, default=1, help='eval per number of epochs')
+
+
+parser.add_argument('--local-rank', type=int, default=0, help='local rank')
+
+
+# Additional arguments for LorTa
+parser.add_argument('--num_heads', type=int, default=16, help='Number of attention heads')
+parser.add_argument('--num_layers', type=int, default=24, help='Number of transformer layers')
+parser.add_argument('--num_modules', type=int, default=4, help='Number of modules (e.g., if finetuning Q, K, V, O) = 4')
+
 
 # influence model, calculate the influence score between two samples.
 def print_args(args):
@@ -232,7 +236,7 @@ def train_validate(
             if args.rank == 0:
                 model_path = os.path.join(args.work_dir, f'model.{train_step}.pt')
                 print('saving checkpoint', model_path)
-                torch.save({'model_state_dict': lora.lora_state_dict(model)}, model_path)
+                torch.save({'model_state_dict': lorta.lorta_state_dict(model)}, model_path)
             distributed_sync(args)
 
         # evaluation interval
@@ -313,10 +317,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
     elif args.model_card == 'gpt2.md':
         config = GPT2Config(
@@ -325,10 +325,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
     elif args.model_card == 'gpt2.lg':
         config = GPT2Config(
@@ -337,10 +333,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
 
     lm_net = GPT2LMModel(config)
@@ -351,7 +343,7 @@ if __name__ == '__main__':
     lm_net = lm_net.cuda()
 
     if args.lora_rank > 0:
-        lora.mark_only_lora_as_trainable(lm_net)
+        lorta.mark_only_lorta_as_trainable(lm_net)
     optimizer = create_adam_optimizer_from_args(lm_net, args)
 
     if args.max_step is None:
