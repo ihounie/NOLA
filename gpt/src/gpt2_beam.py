@@ -32,7 +32,7 @@ from gpu import (
 from exp_utils import create_exp_dir
 
 from data_utils import FT_Dataset 
-from model_nola import GPT2Config, GPT2LMModel
+from model_lorta import GPT2Config, GPT2LMModel
 
 
 parser = argparse.ArgumentParser(description='PyTorch GPT2 beam decoding')
@@ -67,12 +67,6 @@ parser.add_argument('--lora_qv', action='store_true', help="Apply LoRA to query 
 
 parser.add_argument('--lora_mlp', action='store_true', help="Apply LoRA to mlp")
 
-parser.add_argument('--use_nola', action='store_true', help="Use NOLA inside the LoRA")
-
-parser.add_argument('--nola_num_basis', type=int, default=1024, help='Number of basis in NOLA')
-
-parser.add_argument('--qnola', action='store_true', help="quantized aware training")
-
 parser.add_argument('--qbits', type=int, default=2, help='bits for quantized aware training ')
 
 parser.add_argument('--work_dir', type=str, default=os.getenv('PT_OUTPUT_DIR', 'gpt2_model'), 
@@ -92,6 +86,7 @@ parser.add_argument('--eos_token_id', action='append', type=int, default=[50256]
 parser.add_argument('--output_file', type=str, default='beam_prediction.jsonl', 
                     help='output file name')
 
+parser.add_argument('--local-rank', type=int, default=0, help='local rank')
 
 def print_args(args):
     if args.rank == 0:
@@ -381,10 +376,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
     elif args.model_card == 'gpt2.md':
         config = GPT2Config(
@@ -393,10 +384,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
     elif args.model_card == 'gpt2.lg':
         config = GPT2Config(
@@ -405,10 +392,6 @@ if __name__ == '__main__':
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
-            use_nola=args.use_nola, 
-            nola_num_basis=args.nola_num_basis,
-            qnola=args.qnola, 
-            qbits=args.qbits,
         )
 
     lm_net = GPT2LMModel(config)

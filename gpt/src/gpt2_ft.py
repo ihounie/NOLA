@@ -4,6 +4,7 @@
 #  ------------------------------------------------------------------------------------------
 import argparse
 import time
+import json
 import math
 import os, sys
 import numpy as np
@@ -34,6 +35,9 @@ from model_lorta import GPT2Config, GPT2LMModel
 from exp_utils import create_exp_dir
 
 import lortalib as lorta
+
+import wandb
+
 
 parser = argparse.ArgumentParser(description='PyTorch GPT2 ft script')
 
@@ -103,6 +107,9 @@ parser.add_argument('--num_layers', type=int, default=24, help='Number of transf
 parser.add_argument('--num_modules', type=int, default=4, help='Number of modules (e.g., if finetuning Q, K, V, O) = 4')
 
 
+# WandB arguments
+parser.add_argument('--wandb_project', type=str, default='lorta-E2E', help='WandB project name')
+parser.add_argument('--wandb_entity', type=str, default="alelab", help='WandB entity name')
 # influence model, calculate the influence score between two samples.
 def print_args(args):
     if args.rank == 0:
@@ -229,6 +236,14 @@ def train_validate(
 
             if args.rank == 0: 
                 print(log_str)
+                # Log training metrics to wandb
+                wandb.log({
+                    'train/loss': avg_lm_loss.val,
+                    'train/avg_loss': avg_lm_loss.avg,
+                    'train/ppl': math.exp(avg_lm_loss.avg),
+                    'lr': lr,
+                    'step': train_step
+                })
             log_start_time = time.time()
             avg_lm_loss.reset()
         
@@ -256,6 +271,7 @@ def train_validate(
                 print('-' * 100)
                 print(log_str)
                 print('-' * 100)
+                wandb.log({'valid/loss': valid_loss,'valid/ppl': valid_ppl, 'step': train_step, "valid/best_ppl": best_val_ppl})
 
             model.train()
             distributed_sync(args)
@@ -269,6 +285,13 @@ def train_validate(
         torch.save({'model_state_dict': model.state_dict()}, model_path) 
     distributed_sync(args)
     return train_step
+
+def is_jsonable(x):
+    try:
+        json.dumps(x)
+        return True
+    except (TypeError, OverflowError):
+        return False
 
 
 if __name__ == '__main__':
@@ -287,6 +310,9 @@ if __name__ == '__main__':
     
     if args.rank == 0:
         args.logging = create_exp_dir(args.work_dir)
+        # Initialize wandb
+        serializable_args = {k: v for k, v in vars(args).items() if is_jsonable(v)}
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, config=serializable_args)
 
     train_data = FT_Dataset(
         args.train_data, args.train_batch_size, args.seq_len, 

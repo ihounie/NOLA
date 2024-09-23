@@ -1,5 +1,5 @@
 --find-links https://download.pytorch.org/whl/torch_stable.html
-transformers==3.3.1
+transformers
 spacy
 tqdm
 tensorboard
