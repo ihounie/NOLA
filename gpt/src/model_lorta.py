@@ -296,11 +296,15 @@ class GPT2Model(nn.Module):
         self.wpe = nn.Embedding(config.n_positions, config.n_embd)
 
         # Adapter weights
-        self.A = nn.Parameter(torch.randn(self.n_embd, r))
-        self.B = nn.Parameter(torch.randn(r, head_dim))
-        self.C_H = nn.Parameter(torch.randn(num_heads, r))
-        self.C_L = nn.Parameter(torch.randn(num_layers, r))
-        self.C_M = nn.Parameter(torch.randn(4, r))
+        self.A = nn.Parameter(torch.zeros(self.n_embd, r))
+        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+        self.B = nn.Parameter(torch.zeros(r, head_dim))
+        self.C_H = nn.Parameter(torch.zeros(num_heads, r))
+        nn.init.kaiming_uniform_(self.C_H, a=math.sqrt(5))
+        self.C_L = nn.Parameter(torch.zeros(num_layers, r))
+        nn.init.kaiming_uniform_(self.C_L, a=math.sqrt(5))
+        self.C_M = nn.Parameter(torch.zeros(4, r))
+        nn.init.kaiming_uniform_(self.C_M, a=math.sqrt(5))
         self.scaling = config.lora_alpha / r
         
         block = Block(config.n_ctx, config, scale=True,  
