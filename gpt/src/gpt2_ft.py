@@ -36,6 +36,8 @@ from exp_utils import create_exp_dir
 
 import lortalib as lorta
 
+from exp_utils import count_trainable_parameters
+
 import wandb
 
 
@@ -347,7 +349,7 @@ if __name__ == '__main__':
     elif args.model_card == 'gpt2.md':
         config = GPT2Config(
             n_embd=1024, n_layer=24, n_head=16, 
-            lora_qv=args.lora_qv, 
+            lora_qv=True, 
             lora_mlp=args.lora_mlp,
             lora_rank=args.lora_rank,
             lora_alpha=args.lora_alpha,
@@ -370,6 +372,10 @@ if __name__ == '__main__':
 
     if args.lora_rank > 0:
         lorta.mark_only_lorta_as_trainable(lm_net)
+
+    trainable_params = count_trainable_parameters(lm_net)
+    print(trainable_params)
+    wandb.log(trainable_params)
     optimizer = create_adam_optimizer_from_args(lm_net, args)
 
     if args.max_step is None:

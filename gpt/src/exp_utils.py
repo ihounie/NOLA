@@ -44,3 +44,24 @@ def create_exp_dir(dir_path, scripts_to_save=None, debug=False):
 def save_checkpoint(model, optimizer, path, epoch):
     torch.save(model, os.path.join(path, 'model_{}.pt'.format(epoch)))
     torch.save(optimizer.state_dict(), os.path.join(path, 'optimizer_{}.pt'.format(epoch)))
+
+def count_trainable_parameters(model):
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        num_params = param.numel()
+        # if using DS Zero 3 and the weights are initialized empty
+        if num_params == 0 and hasattr(param, "ds_numel"):
+            num_params = param.ds_numel
+
+        # Due to the design of 4bit linear layers from bitsandbytes
+        # one needs to multiply the number of parameters by 2 to get
+        # the correct number of parameters
+        if param.__class__.__name__ == "Params4bit":
+            num_bytes = param.quant_storage.itemsize if hasattr(param, "quant_storage") else 1
+            num_params = num_params * 2 * num_bytes
+
+        all_param += num_params
+        if param.requires_grad:
+            trainable_params += num_params
+    return {"trainable" : trainable_params, "total": num_params}
