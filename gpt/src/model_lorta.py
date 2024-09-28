@@ -39,6 +39,7 @@ class LoRTA(nn.Module):
         **kwargs
     ):
         super(LoRTA, self).__init__(**kwargs)
+        self.alpha = alpha/rank
         self.reset_lora_parameters()
         
     def extra_repr(self) -> str:
@@ -46,7 +47,7 @@ class LoRTA(nn.Module):
             self.rank, self.in_features, self.out_features, self.num_basis_A, self.num_basis_B)
 
     def forward(self, x: torch.Tensor):
-        return self.lora_B(self.lora_A(x)) * self.scale
+        return self.lora_B(self.lora_A(x))
     
 def gelu(x):
     return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
@@ -120,6 +121,7 @@ class Attention(nn.Module):
         self.split_size = n_state
         self.scale = scale
         self.use_lora = use_lora
+        self.alpha = lora_alpha / lora_rank
   
         self.c_attn = lora.MergedLinear(
             nx, n_state * 3, 
@@ -175,17 +177,18 @@ class Attention(nn.Module):
         else:
             return x.permute(0, 2, 1, 3).contiguous()  # (batch, head, seq_length, head_features)
 
-    def forward(self, x, dQ, dK, dV, dO, history=None, layer_past=None, len_past=None):
+    def forward(self, x, dK, dV, history=None, layer_past=None, len_past=None):
         hidden_states = x
+
+        dKx =  x@dK * self.alpha
+        dVx =  x@dV * self.alpha
 
         x = self.c_attn(x)
         
         query, key, value = x.split(self.split_size, dim=2)
         
-        if self.use_lora:
-            query = query + x@dQ 
-            value = value + x@dV
-            key = value + x@dK
+        value = value + dVx
+        key = value + dKx
         
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
@@ -220,7 +223,7 @@ class Attention(nn.Module):
         present = torch.stack((key.transpose(-2, -1), value))  # transpose to have same shapes for stacking
         a = self._attn(query, key, value, len_kv = len_kv)
         a = self.merge_heads(a)
-        a = self.c_proj(a) + a@dO
+        a = self.c_proj(a)
         return a, present
 
 
@@ -271,8 +274,8 @@ class Block(nn.Module):
     def set_eval_mode(self,): 
         self.attn.set_eval_mode()
 
-    def forward(self, x, dQ, dK, dV, dP, layer_past=None, len_past=None):
-        a, present = self.attn(self.ln_1(x), dQ, dK, dV, dP, layer_past=layer_past, len_past=len_past)
+    def forward(self, x, dK, dV,  layer_past=None, len_past=None):
+        a, present = self.attn(self.ln_1(x), dK, dV, layer_past=layer_past, len_past=len_past)
         x = x + a
         m = self.mlp(self.ln_2(x))
         x = x + m
@@ -297,14 +300,14 @@ class GPT2Model(nn.Module):
 
         # Adapter weights
         self.A = nn.Parameter(torch.zeros(self.n_embd, r))
-        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5) * 0.01)
         self.B = nn.Parameter(torch.zeros(r, head_dim))
         self.C_H = nn.Parameter(torch.zeros(num_heads, r))
-        nn.init.kaiming_uniform_(self.C_H, a=math.sqrt(5))
-        self.C_L = nn.Parameter(torch.zeros(num_layers, r))
-        nn.init.kaiming_uniform_(self.C_L, a=math.sqrt(5))
-        self.C_M = nn.Parameter(torch.zeros(4, r))
-        nn.init.kaiming_uniform_(self.C_M, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.C_H, a=math.sqrt(5) * 0.01)
+        self.C_L = nn.Parameter(torch.zeros(num_layers, r) )
+        nn.init.kaiming_uniform_(self.C_L, a=math.sqrt(5) * 0.01)
+        self.C_M = nn.Parameter(torch.zeros(2, r))
+        nn.init.kaiming_uniform_(self.C_M, a=math.sqrt(5) * 0.01)
         self.scaling = config.lora_alpha / r
         
         block = Block(config.n_ctx, config, scale=True,  
@@ -359,12 +362,10 @@ class GPT2Model(nn.Module):
         hidden_states = inputs_embeds + position_embeds + token_type_embeds
         presents = []
         for block_idx, (block, layer_past) in enumerate(zip(self.h, past)):
-            dQ = torch.cat([self.A@torch.diag(self.C_H[head_idx]*self.C_M[0]*self.C_L[block_idx])@self.B for head_idx in range(self.config.n_head)], dim=1)
-            assert(dQ.shape == (self.config.n_embd, self.config.n_embd))
-            dK = torch.cat([self.A @torch.diag(self.C_H[head_idx]*self.C_M[1]*self.C_L[block_idx])@ self.B for head_idx in range(self.config.n_head)], dim=1)
-            dV = torch.cat([self.A @torch.diag(self.C_H[head_idx]*self.C_M[2]*self.C_L[block_idx])@self.B for head_idx in range(self.config.n_head)], dim=1) 
-            dP = torch.cat([self.A @torch.diag(self.C_H[head_idx]*self.C_M[3]*self.C_L[block_idx])@self.B for head_idx in range(self.config.n_head)], dim=1)
-            hidden_states, present = block(hidden_states, dQ, dK, dV, dP, layer_past = layer_past, len_past=len_past)
+            #assert(dQ.shape == (self.config.n_embd, self.config.n_embd))
+            dK = torch.cat([self.A @torch.diag(self.C_H[head_idx]*self.C_M[0]*self.C_L[block_idx])@ self.B for head_idx in range(self.config.n_head)], dim=1)
+            dV = torch.cat([self.A @torch.diag(self.C_H[head_idx]*self.C_M[1]*self.C_L[block_idx])@self.B for head_idx in range(self.config.n_head)], dim=1) 
+            hidden_states, present = block(hidden_states, dK, dV, layer_past = layer_past, len_past=len_past)
             presents.append(present)
         hidden_states = self.ln_f(hidden_states)
         output_shape = input_shape + (hidden_states.size(-1),)
