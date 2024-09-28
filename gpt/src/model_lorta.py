@@ -188,7 +188,7 @@ class Attention(nn.Module):
         query, key, value = x.split(self.split_size, dim=2)
         
         value = value + dVx
-        key = value + dKx
+        key = key + dKx
         
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
@@ -300,14 +300,14 @@ class GPT2Model(nn.Module):
 
         # Adapter weights
         self.A = nn.Parameter(torch.zeros(self.n_embd, r))
-        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5) * 0.01)
+        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
         self.B = nn.Parameter(torch.zeros(r, head_dim))
         self.C_H = nn.Parameter(torch.zeros(num_heads, r))
-        nn.init.kaiming_uniform_(self.C_H, a=math.sqrt(5) * 0.01)
+        nn.init.kaiming_uniform_(self.C_H, a=math.sqrt(5))
         self.C_L = nn.Parameter(torch.zeros(num_layers, r) )
-        nn.init.kaiming_uniform_(self.C_L, a=math.sqrt(5) * 0.01)
+        nn.init.kaiming_uniform_(self.C_L, a=math.sqrt(5))
         self.C_M = nn.Parameter(torch.zeros(2, r))
-        nn.init.kaiming_uniform_(self.C_M, a=math.sqrt(5) * 0.01)
+        nn.init.kaiming_uniform_(self.C_M, a=math.sqrt(5))
         self.scaling = config.lora_alpha / r
         
         block = Block(config.n_ctx, config, scale=True,  
